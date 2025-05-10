@@ -43,9 +43,49 @@ from .starling import (
     build_starling_rm,
 )
 from .ziya import ZiyaPipeline
+# Shuyi
+from .sae import TopkSAE, pre_process
+from .sae4rm_llama import (
+    LlamaBaseline, 
+    LlamaSAE4RM
+)
+from .sae4rm_gemma2 import (
+    Gemma2Baseline, 
+    Gemma2SAE4RM
+)
 
 # Please open a PR if you need to add more custom modeling code / utilize existing code for you model
 REWARD_MODEL_CONFIG = {
+    # Shuyi
+    "LlamaSAE4RM": {
+        "model_builder": LlamaSAE4RM.from_pretrained,
+        "pipeline_builder": RewardBenchPipeline,
+        "quantized": False,
+        "custom_dialogue": False,
+        "model_type": "Seq. Classifier",
+    },
+    "Gemma2SAE4RM": {
+        "model_builder": Gemma2SAE4RM.from_pretrained,
+        "pipeline_builder": RewardBenchPipeline,
+        "quantized": False,
+        "custom_dialogue": False,
+        "model_type": "Seq. Classifier",
+    },
+    "LlamaBaseline": {
+        "model_builder": LlamaBaseline.from_pretrained,
+        "pipeline_builder": RewardBenchPipeline,
+        "quantized": False,
+        "custom_dialogue": False,
+        "model_type": "Seq. Classifier",
+    },
+    "Gemma2Baseline": {
+        "model_builder": Gemma2Baseline.from_pretrained,
+        "pipeline_builder": RewardBenchPipeline,
+        "quantized": False,
+        "custom_dialogue": False,
+        "model_type": "Seq. Classifier",
+    },
+    
     "default": {
         "model_builder": AutoModelForSequenceClassification.from_pretrained,
         "pipeline_builder": RewardBenchPipeline,

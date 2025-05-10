@@ -16,6 +16,8 @@ import argparse
 import logging
 import os
 import sys
+import re
+import pandas as pd
 
 import numpy as np
 import torch
@@ -54,6 +56,15 @@ def get_args():
     Parse arguments strings model and chat_template
     """
     parser = argparse.ArgumentParser()
+    # Shuyi
+    parser.add_argument(
+        "--sae_path", type=str, required=False, 
+        help="the sae path to be merged in .safetensors(name of sae_path(e.g. _Latent16384_Layer8_K144_) will be used to parse LatentSize and HiddenStateSourceLayer)."
+    )
+    parser.add_argument("--sae4rm_base_model", type=str, required=False, help="RM Backbone type(from which arch's hidden states sae is trained). ")
+    parser.add_argument("--sae4rm_use_topk", action="store_true", help="whether or not to use top k in rm")
+    parser.add_argument("--use_baseline", action="store_true", help="whether or not to use baseine")
+    
     parser.add_argument("--model", type=str, required=True, help="path to model")
     parser.add_argument("--tokenizer", type=str, default=None, help="path to non-matching tokenizer to model")
     parser.add_argument("--chat_template", type=str, default="tulu", help="path to chat template")
@@ -93,7 +104,6 @@ def get_args():
     args.torch_dtype = torch_dtype_mapping(args.torch_dtype)
     return args
 
-
 def main():
     args = get_args()
     ###############
@@ -122,10 +132,25 @@ def main():
     chat_template = args.chat_template
     conv = get_conv_template(chat_template)
 
-    if args.model in REWARD_MODEL_CONFIG:
+    # Shuyi
+    if args.use_baseline:
+        if args.sae4rm_base_model=='llama':
+            config = REWARD_MODEL_CONFIG['LlamaBaseline']
+        elif args.sae4rm_base_model=='gemma2':
+            config = REWARD_MODEL_CONFIG['Gemma2Baseline']
+        else:
+            raise ValueError(f"Invalid base model type: {args.sae4rm_base_model}")
+    elif args.sae_path is not None:
+        if args.sae4rm_base_model=='llama':
+            config = REWARD_MODEL_CONFIG['LlamaSAE4RM']
+        elif args.sae4rm_base_model=='gemma2':
+            config = REWARD_MODEL_CONFIG['Gemma2SAE4RM']
+        else:
+            raise ValueError(f"Invalid base model type: {args.sae4rm_base_model}")   
+    elif args.model in REWARD_MODEL_CONFIG:
         config = REWARD_MODEL_CONFIG[args.model]
     else:
-        config = REWARD_MODEL_CONFIG["default"]
+        config = REWARD_MODEL_CONFIG["default_v2"]
     logger.info(f"Using reward model config: {config}")
 
     # Default entries
@@ -221,6 +246,29 @@ def main():
     if args.attn_implementation:
         model_kwargs["attn_implementation"] = args.attn_implementation
 
+    def parse_sae_params(filename):
+        pattern = r'_Latent(\d+)_Layer(\d+)_K(\d+)_'
+        match = re.search(pattern, filename)
+        
+        if not match:
+            raise ValueError(f"Invalid SAE filename format: {filename}")
+        
+        ret = {
+            "sae_latent_size": int(match.group(1)),
+            "sae_hidden_state_source_layer": int(match.group(2)),
+            "sae_k": int(match.group(3)),
+            'sae4rm_use_topk': args.sae4rm_use_topk
+        }
+        if args.use_baseline: 
+            ret.pop('sae_k')
+            ret.pop('sae4rm_use_topk')
+        return ret
+    
+    if args.sae_path is not None:
+        sae_kwargs = parse_sae_params(args.sae_path)
+        model_kwargs.update(
+            sae_kwargs
+        )
     model = model_builder(args.model, **model_kwargs, trust_remote_code=trust_remote_code)
     reward_pipe = pipeline_builder(
         "text-classification",
@@ -296,7 +344,7 @@ def main():
         scores_chosen = []
         scores_rejected = []
         for step, batch in enumerate(tqdm(dataloader, desc="RM batch steps")):
-            logger.info(f"RM inference step {step}/{len(dataloader)}")
+            # logger.info(f"RM inference step {step}/{len(dataloader)}")
 
             if model_type == "Custom Classifier":
                 text_rejected = [b["text_rejected"] for b in batch]
@@ -366,35 +414,60 @@ def main():
         results_leaderboard = calculate_scores_per_section(EXAMPLE_COUNTS, SUBSET_MAPPING, results_grouped)
         print(results_leaderboard)
 
+    # Shuyi
+    if args.model[-1]=='/':
+        args.model=args.model[:-1]
+    results_leaderboard.update({
+        'Name': args.model.split('/')[-2],
+        'Score': sum(list(results_leaderboard.values()))/4
+    })
+    
+    lpath = f'./leaderboard/{args.sae_path}.csv'
+    lboard = None
+    if not os.path.exists(lpath):
+        lboard=pd.DataFrame(dict({
+            'Name': ['Random'],
+            'Score': [50.0],
+            'Chat': [50.0],
+            'Chat Hard': [50.0],
+            'Safety': [50.0],
+            'Reasoning': [50.0],
+        }))
+    else:
+        lboard = pd.read_csv(lpath, index_col=0)
+    
+    df_to_save = pd.concat([lboard, pd.DataFrame([results_leaderboard])]).reset_index(drop=True)
+    df_to_save.to_csv(lpath)
+
     ############################
     # Upload results to hub
     ############################
-    sub_path = "eval-set/" if not args.pref_sets else "pref-sets/"
-    results_url = save_to_hub(
-        results_grouped,
-        args.model,
-        sub_path,
-        args.debug,
-        local_only=args.do_not_save,
-        save_metrics_for_beaker=not args.disable_beaker_save,
-    )
-    if not args.do_not_save:
-        logger.info(f"Uploaded reward model results to {results_url}")
+    # sub_path = "eval-set/" if not args.pref_sets else "pref-sets/"
+    # results_url = save_to_hub(
+    #     results_grouped,
+    #     args.model,
+    #     sub_path,
+    #     args.debug,
+    #     local_only=args.do_not_save,
+    #     save_metrics_for_beaker=not args.disable_beaker_save,
+    # )
+    # if not args.do_not_save:
+    #     logger.info(f"Uploaded reward model results to {results_url}")
 
-    # upload chosen-rejected with scores
-    if not model_type == "Custom Classifier":  # custom classifiers do not return scores
-        # create new json with scores and upload
-        scores_dict = out_dataset.to_dict()
-        scores_dict["model"] = args.model
-        scores_dict["model_type"] = model_type
-        scores_dict["chat_template"] = args.chat_template
+    # # upload chosen-rejected with scores
+    # if not model_type == "Custom Classifier":  # custom classifiers do not return scores
+    #     # create new json with scores and upload
+    #     scores_dict = out_dataset.to_dict()
+    #     scores_dict["model"] = args.model
+    #     scores_dict["model_type"] = model_type
+    #     scores_dict["chat_template"] = args.chat_template
 
-        sub_path_scores = "eval-set-scores/" if not args.pref_sets else "pref-sets-scores/"
+    #     sub_path_scores = "eval-set-scores/" if not args.pref_sets else "pref-sets-scores/"
 
-        scores_url = save_to_hub(scores_dict, args.model, sub_path_scores, args.debug, local_only=args.do_not_save)
-        logger.info(f"Uploading chosen-rejected text with scores to {scores_url}")
-    else:
-        logger.info("Not uploading chosen-rejected text with scores due to model compatibility")
+    #     scores_url = save_to_hub(scores_dict, args.model, sub_path_scores, args.debug, local_only=args.do_not_save)
+    #     logger.info(f"Uploading chosen-rejected text with scores to {scores_url}")
+    # else:
+    #     logger.info("Not uploading chosen-rejected text with scores due to model compatibility")
 
 
 if __name__ == "__main__":

@@ -323,7 +323,11 @@ def load_eval_dataset(
         subsets: list of subsets for the corresponding samples in the dataset.
     """
     if core_set:
-        raw_dataset = load_dataset(CORE_EVAL_SET, split="filtered")
+        # raw_dataset = load_dataset(CORE_EVAL_SET, split="filtered")
+        raw_dataset = load_dataset(
+            'parquet', 
+            data_files=['/mnt/finder/lisihang/xAI-RLHF/Shuyi/datasets/reward-bench/data/filtered-00000-of-00001.parquet']
+        )['train']
     else:
         raw_dataset = load_dataset(EXTRA_PREF_SETS)
         modified_datasets = []

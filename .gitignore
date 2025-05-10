@@ -179,3 +179,6 @@ beaker_configs/auto_created
 hf_snapshot_evals/
 data/
 output/
+
+alinks
+leaderboard
