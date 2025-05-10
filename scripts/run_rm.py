@@ -269,6 +269,7 @@ def main():
         model_kwargs.update(
             sae_kwargs
         )
+    print('loading weights from:',args.model)
     model = model_builder(args.model, **model_kwargs, trust_remote_code=trust_remote_code)
     reward_pipe = pipeline_builder(
         "text-classification",
@@ -421,7 +422,7 @@ def main():
         'Score': sum(list(results_leaderboard.values()))/4
     })
     
-    lpath = os.path.join(args.model,'leaderboard.csv')
+    lpath = os.path.join('/', *args.model.split('/')[:-1],'leaderboard.csv')
     print("saving to :",lpath)
     lboard = None
     if not os.path.exists(lpath):
