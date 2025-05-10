@@ -415,14 +415,14 @@ def main():
         print(results_leaderboard)
 
     # Shuyi
-    if args.model[-1]=='/':
-        args.model=args.model[:-1]
+    args.model=os.path.normpath(args.model)
     results_leaderboard.update({
-        'Name': args.model.split('/')[-2],
+        'Name': args.model.split('/')[-1],
         'Score': sum(list(results_leaderboard.values()))/4
     })
     
-    lpath = f'./leaderboard/{args.sae_path}.csv'
+    lpath = os.path.join(args.model,'leaderboard.csv')
+    print("saving to :",lpath)
     lboard = None
     if not os.path.exists(lpath):
         lboard=pd.DataFrame(dict({
