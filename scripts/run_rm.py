@@ -249,7 +249,8 @@ def main():
     def parse_sae_params(filename):
         pattern = r'_Latent(\d+)_Layer(\d+)_K(\d+)_'
         match = re.search(pattern, filename)
-        
+        print(filename)
+        print(match)
         if not match:
             raise ValueError(f"Invalid SAE filename format: {filename}")
         
